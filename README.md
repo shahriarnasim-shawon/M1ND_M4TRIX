@@ -1,51 +1,67 @@
 # GridWise — Smart Campus Energy Optimization Engine
 
-### BUP CSE Fest 2026 · Hackathon · Preliminary Round
+## BUP CSE Fest 2026 · Hackathon · Preliminary Round
 
 An automated, low-latency, and mathematically verified energy scheduling API. The service parses unstructured, natural-language campus operator notes into machine-checkable operational directives, validates them through deterministic guardrails, and solves the 24-hour campus energy scheduling problem to global cost optimality using Mixed-Integer Linear Programming (MILP).
 
 ---
 
-## 1. System Architecture & Flow
+# 1. System Architecture & Flow
 
 ```text
 ┌─────────────────┐    ┌─────────────────────────┐    ┌──────────────────────┐    ┌────────────────────┐    ┌──────────────┐
-│  Request JSON   │ ──>│  Gemini 3.1 Flash-Lite │ ──>│   Deterministic      │ ──>│  HiGHS MILP Solver │ ──>│ JSON Output  │
+│  Request JSON   │ ──>│  Gemini 3.1 Flash-Lite  │ ──>│   Deterministic      │ ──>│  HiGHS MILP Solver │ ──>│ JSON Output  │
 │  (Data + Notes) │    │  (Directive Interpreter)│    │  Guardrail Validator │    │   (SciPy milp)     │    │ Plan & Costs │
 └─────────────────┘    └─────────────────────────┘    └──────────────────────┘    └────────────────────┘    └──────────────┘
-1.1 LLM Interpreter (gemini-3.1-flash-lite)
-Parses 1–3 natural-language notes into structured directives in exact note_index order.
-Standardizes time intervals using start-inclusive, end-exclusive whole-hour indexing ([start, end)).
-Translates relative reserves (e.g., "50% capacity") to absolute kWh and calculates usable solar remaining factors.
-Accurately filters out distractors and unrelated campus announcements as no_op (applies = false, structured_adjustment = null).
-Uses ThinkingLevel.MINIMAL to eliminate reasoning delays, keeping LLM generation under 1.5 seconds.
-1.2 Deterministic Guardrails (llm_interpreter.py)
-Untrusted model output is verified against canonical contract rules before entering the optimizer.
-Enforces supported directive enums, unique ascending hour sequences (0..23), bounded factors (0.0 <= factor <= 1.0), and capacity-capped reserve levels.
-Never crashes on malformed LLM responses; safely defaults unparseable notes to non-breaking no_op.
-1.3 Mathematical Optimizer (optimizer.py via SciPy HiGHS)
-Formulated as a Mixed-Integer Linear Program (MILP) solved in < 10 ms.
-Strictly satisfies all GridWise physical constraints: hourly demand balance, solar availability/curtailment, battery capacity/reserve bounds, and charge/discharge rate limits.
-Implements binary exclusivity variables (u_h ∈ {0, 1}) to guarantee the battery never charges and discharges within the same hour.
-Enforces strict end-of-day battery neutrality: battery_energy_after_kwh[23] == initial_energy_kwh.
-1.4 Exact Re-accounting Validator
-Recalculates total_grid_kwh, total_cost_bdt, and peak_grid_kwh directly from the discrete rounded hourly plan to eliminate floating-point drift against judge replay harnesses.
-## 2. Dependencies & Tech Stack
-Runtime: Python 3.11+
-API Framework: FastAPI & Uvicorn (async HTTP server with threadpool dispatch)
-Data Validation: Pydantic v2 (strict JSON schemas)
-Language Model SDK: google-genai (Google Gemini API client)
-Mathematical Solver: scipy.optimize.milp (HiGHS solver engine)
-Numerical Computing: NumPy
-## 3. Environment Variables
-Variable Name	Required	Default	Description
-GEMINI_API_KEY	Yes	None	Google Gemini API key used for directive parsing.
-GEMINI_MODEL	No	gemini-3.1-flash-lite	Model identifier for natural language interpretation.
-PORT	No	8000	HTTP service port (automatically mapped in cloud platforms).
+```
 
-Security Note: Never commit .env files or hardcode API keys. Keys must only be injected via environment variables at runtime.
+## 1.1 LLM Interpreter (gemini-3.1-flash-lite)
 
-## 4. Local Quickstart (Clean Environment Reproduction)
+- Parses 1–3 natural-language notes into structured directives in exact `note_index` order.
+- Standardizes time intervals using start-inclusive, end-exclusive whole-hour indexing (`[start, end)`).
+- Translates relative reserves (e.g., "50% capacity") to absolute kWh and calculates usable solar remaining factors.
+- Accurately filters out distractors and unrelated campus announcements as `no_op` (`applies = false`, `structured_adjustment = null`).
+- Uses `ThinkingLevel.MINIMAL` to eliminate reasoning delays, keeping LLM generation under 1.5 seconds.
+
+## 1.2 Deterministic Guardrails (llm_interpreter.py)
+
+- Untrusted model output is verified against canonical contract rules before entering the optimizer.
+- Enforces supported directive enums, unique ascending hour sequences (0..23), bounded factors (`0.0 <= factor <= 1.0`), and capacity-capped reserve levels.
+- Never crashes on malformed LLM responses; safely defaults unparseable notes to non-breaking `no_op`.
+
+## 1.3 Mathematical Optimizer (optimizer.py via SciPy HiGHS)
+
+- Formulated as a Mixed-Integer Linear Program (MILP) solved in < 10 ms.
+- Strictly satisfies all GridWise physical constraints: hourly demand balance, solar availability/curtailment, battery capacity/reserve bounds, and charge/discharge rate limits.
+- Implements binary exclusivity variables (`u_h ∈ {0, 1}`) to guarantee the battery never charges and discharges within the same hour.
+- Enforces strict end-of-day battery neutrality: `battery_energy_after_kwh[23] == initial_energy_kwh`.
+
+## 1.4 Exact Re-accounting Validator
+
+- Recalculates `total_grid_kwh`, `total_cost_bdt`, and `peak_grid_kwh` directly from the discrete rounded hourly plan to eliminate floating-point drift against judge replay harnesses.
+
+# 2. Dependencies & Tech Stack
+
+- **Runtime:** Python 3.11+
+- **API Framework:** FastAPI & Uvicorn (async HTTP server with threadpool dispatch)
+- **Data Validation:** Pydantic v2 (strict JSON schemas)
+- **Language Model SDK:** google-genai (Google Gemini API client)
+- **Mathematical Solver:** scipy.optimize.milp (HiGHS solver engine)
+- **Numerical Computing:** NumPy
+
+# 3. Environment Variables
+
+| Variable Name    | Required | Default                 | Description                                                  |
+| ---------------- | -------- | ----------------------- | ------------------------------------------------------------ |
+| `GEMINI_API_KEY` | Yes      | None                    | Google Gemini API key used for directive parsing.            |
+| `GEMINI_MODEL`   | No       | `gemini-3.1-flash-lite` | Model identifier for natural language interpretation.        |
+| `PORT`           | No       | `8000`                  | HTTP service port (automatically mapped in cloud platforms). |
+
+**Security Note:** Never commit `.env` files or hardcode API keys. Keys must only be injected via environment variables at runtime.
+
+# 4. Local Quickstart (Clean Environment Reproduction)
+
+```bash
 # 1. Clone the repository
 git clone https://github.com/shahriarnasimshawon/<your-repo-name>.git
 cd <your-repo-name>
@@ -63,16 +79,27 @@ export GEMINI_API_KEY="your-gemini-api-key-here"
 
 # 5. Start the HTTP API service
 uvicorn main:app --host 0.0.0.0 --port 8000
-## 5. Endpoints & API Verification
-5.1 Health Check (GET /health)
+```
+
+# 5. Endpoints & API Verification
+
+## 5.1 Health Check (GET /health)
+
+```bash
 curl -i -X GET http://localhost:8000/health
+```
 
 Expected Response (HTTP 200 OK):
 
+```json
 {
   "status": "ok"
 }
-5.2 Optimize Energy (POST /optimize-energy)
+```
+
+## 5.2 Optimize Energy (POST /optimize-energy)
+
+```bash
 curl -X POST http://localhost:8000/optimize-energy \
      -H "Content-Type: application/json" \
      -d '{
@@ -115,21 +142,25 @@ curl -X POST http://localhost:8000/optimize-energy \
          "max_discharge_kwh_per_hour": 50
        }
      }'
+```
 
-Expected Outcome: HTTP 200 OK, total_grid_kwh = 2692.5, total_cost_bdt = 38365.0.
+**Expected Outcome:** HTTP 200 OK, `total_grid_kwh = 2692.5`, `total_cost_bdt = 38365.0`.
 
-5.3 Automated Validation Test
+## 5.3 Automated Validation Test
 
 Run the test suite across all 10 canonical public sample cases:
 
+```bash
 python validate_all_samples.py
+```
 
-Expected Output: 10/10 cases passed with exact cost and directive matching.
+**Expected Output:** 10/10 cases passed with exact cost and directive matching.
 
-## 6. Docker Fallback Execution
+# 6. Docker Fallback Execution
 
 A pre-built container image (linux/amd64) is available on Docker Hub for judge fallback execution:
 
+```bash
 # 1. Pull the image
 docker pull shahriarnasimshawon/gridwise:latest
 
@@ -142,9 +173,10 @@ docker run -d -p 8000:8000 \
 # 3. Verify readiness
 curl -s http://localhost:8000/health
 # Output: {"status":"ok"}
-## 7. Known Limitations & Edge-Case Handling
-Sub-Hour Directives: The Problem Statement establishes whole-hour intervals (0..23). Directives with fractional minutes round to the nearest encompassing whole-hour window.
-Upstream LLM Latency & Retries: If external network jitter occurs during an LLM API call, the client automatically retries once with backoff before falling back to a safe, non-crashing no_op response to guarantee uptime.
-Infeasible Directives: Organizers guaranteed feasible test cases. If contradictory hard constraints are received, the solver rejects impossible physical states and returns a controlled HTTP 500 error without exposing internal stack traces.
-
 ```
+
+# 7. Known Limitations & Edge-Case Handling
+
+- **Sub-Hour Directives:** The Problem Statement establishes whole-hour intervals (0..23). Directives with fractional minutes round to the nearest encompassing whole-hour window.
+- **Upstream LLM Latency & Retries:** If external network jitter occurs during an LLM API call, the client automatically retries once with backoff before falling back to a safe, non-crashing `no_op` response to guarantee uptime.
+- **Infeasible Directives:** Organizers guaranteed feasible test cases. If contradictory hard constraints are received, the solver rejects impossible physical states and returns a controlled HTTP 500 error without exposing internal stack traces.
