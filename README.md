@@ -1,4 +1,4 @@
-# GridWise — Smart Campus Energy Optimization Engine
+# M1ND_M4TR1X — Smart Campus Energy Optimization Engine
 
 ## BUP CSE Fest 2026 · Hackathon · Preliminary Round
 
